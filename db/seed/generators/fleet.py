@@ -179,7 +179,8 @@ async def seed_fleet(conn):
         sched_arrive = sched_depart + timedelta(hours=route_duration)
 
         if status == "completed":
-            delay = random.uniform(-0.5, 3.0)
+            # ~85% on-time baseline; anomalous routes fixed by anomalies.py after seeding
+            delay = random.uniform(-1.5, 0.5) if random.random() < 0.85 else random.uniform(0.5, 4.0)
             actual_arrive = sched_arrive + timedelta(hours=delay)
         else:
             actual_arrive = None

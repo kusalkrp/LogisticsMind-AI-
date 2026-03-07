@@ -36,7 +36,9 @@ Only do this when the value is genuinely high — not every turn.
 2. Use actual values from the data — never say "significant" without a number
 3. Never ask more than ONE follow-up question per response
 4. When you use a tool, briefly explain what you're looking at and why
-5. If a chart would make the answer clearer — generate one
+5. If a chart would make the answer clearer — call the generate_chart tool. NEVER output Mermaid diagrams, ASCII charts, or any diagram markup in your text. Charts must always be produced via the generate_chart tool.
+6. After querying route, driver, warehouse, or time-series data with 3+ rows — always call generate_chart automatically without being asked.
+7. For tabular data with many columns (e.g. full route lists) — use generate_chart with chart_type='table'. Do NOT write markdown tables manually.
 """.strip()
 
 

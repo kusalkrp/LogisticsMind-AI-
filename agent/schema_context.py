@@ -44,6 +44,24 @@ SCHEMA_CONTEXT = """
 - analytics.warehouse_utilisation — facility_id, facility_code, facility_name, district_name, province, facility_type, capacity_m3, current_util_pct, has_cold_chain, has_hazmat, lat, lng, unique_products, total_items
 - analytics.monthly_shipments — month, total_shipments, delivered, returned, on_time, on_time_pct, avg_delay_hours, total_weight_kg, total_volume_m3
 
+### Important Data Limitations
+- warehouse.facilities.current_util_pct is a STATIC SNAPSHOT — it does NOT change over time and cannot show trends.
+- warehouse.inventory_items does NOT have timestamps — do NOT use it for trend analysis.
+- For warehouse utilisation TRENDS, you MUST use warehouse.stock_movements (150,000 rows over 2 years with moved_at timestamps).
+  - Inbound types:  receipt, transfer_in  → stock increasing
+  - Outbound types: dispatch, transfer_out, damage → stock decreasing
+  - CORRECT trend query (copy this pattern exactly):
+      SELECT DATE_TRUNC('month', sm.moved_at)::date AS month, f.name,
+        SUM(CASE WHEN sm.movement_type IN ('receipt','transfer_in') THEN sm.quantity ELSE 0 END) AS inbound,
+        SUM(CASE WHEN sm.movement_type IN ('dispatch','transfer_out','damage') THEN sm.quantity ELSE 0 END) AS outbound,
+        SUM(CASE WHEN sm.movement_type IN ('receipt','transfer_in') THEN sm.quantity ELSE -sm.quantity END) AS net_flow
+      FROM warehouse.stock_movements sm
+      JOIN warehouse.facilities f ON sm.facility_id = f.id
+      WHERE f.name ILIKE '%Galle%'   -- or use f.code = 'WH-GAL-01'
+      GROUP BY month, f.name ORDER BY month
+- Positive net_flow = more stock arriving than leaving (utilisation pressure rising).
+- Negative net_flow = more outbound than inbound (facility clearing out).
+
 ### Key Query Patterns
 - For district names: always JOIN core.districts
 - For route performance: use analytics.route_performance or JOIN fleet.routes + fleet.trips
@@ -52,4 +70,17 @@ SCHEMA_CONTEXT = """
 - For fuel efficiency: fuel_used_l / NULLIF(distance_actual_km, 0)
 - For payment delays: payment_date - due_date (from finance.payments JOIN finance.invoices)
 - For seasonal patterns: GROUP BY DATE_TRUNC('month', date_column)
+
+### Map Chart Requirements
+- For ANY map/geographical visualisation, ALWAYS include lat AND lng in the SELECT
+- analytics.warehouse_utilisation already has lat and lng — use it directly
+- warehouse.facilities has lat and lng columns
+- core.districts has lat and lng columns (lat, lng)
+- When asked for a map, use chart_type='map' and include columns: lat, lng, plus the metric and label
+
+Map query patterns by use case:
+  Warehouse map:     SELECT facility_name, lat, lng, current_util_pct FROM analytics.warehouse_utilisation
+  Incident map:      SELECT d.name, d.lat, d.lng, COUNT(i.id) as incident_count FROM operations.incidents i JOIN core.districts d ON i.district_id = d.id GROUP BY d.name, d.lat, d.lng
+  Route origin map:  SELECT d.name, d.lat, d.lng, COUNT(t.id) as trip_count FROM fleet.trips t JOIN fleet.routes r ON t.route_id = r.id JOIN core.districts d ON r.origin_district = d.id GROUP BY d.name, d.lat, d.lng
+  Delay by district: SELECT d.name, d.lat, d.lng, COUNT(*) as delayed FROM fleet.trips t JOIN fleet.routes r ON t.route_id = r.id JOIN core.districts d ON r.origin_district = d.id WHERE t.actual_arrive > t.scheduled_arrive GROUP BY d.name, d.lat, d.lng
 """

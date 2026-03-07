@@ -78,13 +78,28 @@ async def extract_and_store(user_id: str, history: list):
     Extracts facts + session summary and stores to PostgreSQL.
     """
     try:
+        if not history:
+            return
+        # Serialize history into a single user message to avoid Gemini turn-ordering issues
+        transcript = "\n".join(
+            f"{m['role'].upper()}: {m.get('content', '')}"
+            for m in history
+            if m.get("content")
+        )
         raw = await get_llm().generate(
             system=MEMORY_EXTRACTION_PROMPT,
-            messages=history,
+            messages=[{"role": "user", "content": f"Conversation to analyse:\n\n{transcript}"}],
             tier="flash"
         )
+        if not raw or not raw.strip():
+            return
         clean = raw.replace("```json", "").replace("```", "").strip()
-        data = json.loads(clean)
+        # Find the JSON object within the response
+        start = clean.find("{")
+        end = clean.rfind("}") + 1
+        if start == -1 or end == 0:
+            return
+        data = json.loads(clean[start:end])
         store = MemoryStore(user_id)
 
         if data.get("facts"):

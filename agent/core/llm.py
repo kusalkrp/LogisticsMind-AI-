@@ -2,10 +2,7 @@
 import os
 import google.generativeai as genai
 
-MODELS = {
-    "flash": "gemini-1.5-flash",
-    "pro":   "gemini-1.5-pro",
-}
+MODEL = "gemini-2.5-flash"
 
 
 class GeminiClient:
@@ -16,9 +13,9 @@ class GeminiClient:
         self,
         system: str,
         messages: list[dict],
-        tier: str = "pro",
+        tier: str = "flash",  # noqa: ARG002 — kept for API compatibility
     ) -> str:
-        model_name = MODELS[tier]
+        model_name = MODEL
         model = genai.GenerativeModel(
             model_name=model_name,
             system_instruction=system
@@ -33,7 +30,11 @@ class GeminiClient:
             gemini_messages = [{"role": "user", "parts": ["Hello"]}]
 
         response = await model.generate_content_async(gemini_messages)
-        return response.text
+        try:
+            return response.text
+        except Exception:
+            # Response blocked or empty (finish_reason != STOP)
+            return ""
 
     async def generate_with_tools(
         self,
@@ -43,7 +44,7 @@ class GeminiClient:
     ) -> dict:
         """Generate with function calling. Returns {text, tool_calls}."""
         model = genai.GenerativeModel(
-            model_name=MODELS["pro"],
+            model_name=MODEL,
             system_instruction=system,
             tools=self._convert_tools(tools)
         )

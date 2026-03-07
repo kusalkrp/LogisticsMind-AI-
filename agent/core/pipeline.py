@@ -57,7 +57,23 @@ async def node_inner_monologue(state: AgentState) -> AgentState:
     return {**state, "monologue": mono}
 
 
+async def _execute_calls(calls: list, registry: dict) -> list:
+    """Run a list of tool calls and return results."""
+    import json
+    executed = []
+    for call in calls:
+        fn = registry.get(call["name"])
+        if fn:
+            try:
+                output = await fn(**call["input"])
+                executed.append({"name": call["name"], "input": call["input"], "output": output, "status": "success"})
+            except Exception as e:
+                executed.append({"name": call["name"], "input": call["input"], "output": {"error": str(e)}, "status": "error"})
+    return executed
+
+
 async def node_route_and_execute_tools(state: AgentState) -> AgentState:
+    import json
     from agent.core.llm import get_llm
     from agent.tools import TOOL_REGISTRY, TOOL_SCHEMAS
 
@@ -65,35 +81,44 @@ async def node_route_and_execute_tools(state: AgentState) -> AgentState:
     system = _build_tool_system(state)
     messages = state["history"] + [{"role": "user", "content": state["message"]}]
 
+    # Round 1: query/anomaly/forecast/schema tools
     result = await llm.generate_with_tools(system, messages, TOOL_SCHEMAS)
-    tool_calls = result.get("tool_calls", [])
+    executed = await _execute_calls(result.get("tool_calls", []), TOOL_REGISTRY)
 
-    executed = []
-    for call in tool_calls:
-        fn = TOOL_REGISTRY.get(call["name"])
-        if fn:
-            try:
-                output = await fn(**call["input"])
-                executed.append({
-                    "name": call["name"],
-                    "input": call["input"],
-                    "output": output,
-                    "status": "success"
-                })
-            except Exception as e:
-                executed.append({
-                    "name": call["name"],
-                    "input": call["input"],
-                    "output": {"error": str(e)},
-                    "status": "error"
-                })
+    # Round 2: if query_database returned rows and no chart yet, offer a charting opportunity
+    query_result = next(
+        (tc for tc in executed if tc["name"] == "query_database" and tc.get("output", {}).get("success")),
+        None
+    )
+    already_charted = any(tc["name"] == "generate_chart" for tc in executed)
 
-    tool_context = ""
-    if executed:
-        tool_context = "\n".join(
-            f"Tool '{tc['name']}' result: {tc['output']}"
-            for tc in executed
-        )
+    if query_result and not already_charted:
+        rows = query_result["output"].get("rows", [])
+        cols = query_result["output"].get("columns", [])
+        if len(rows) >= 2 and len(cols) >= 2:
+            # Give LLM the query results and ask it to chart if appropriate
+            chart_context = (
+                f"Query returned {len(rows)} rows with columns: {cols}.\n"
+                f"Sample data (first 3 rows): {json.dumps(rows[:3])}\n\n"
+                "If a chart would make this data clearer, call generate_chart now. "
+                "Pass the full rows as the 'data' parameter (JSON array string). "
+                "Choose x_column and y_column from the available columns. "
+                "If no chart adds value, do not call any tool."
+            )
+            chart_messages = messages + [{"role": "user", "content": chart_context}]
+            chart_result = await llm.generate_with_tools(system, chart_messages, TOOL_SCHEMAS)
+            chart_calls = [c for c in chart_result.get("tool_calls", []) if c["name"] == "generate_chart"]
+            if chart_calls:
+                # Always override with the authoritative full rows from query_database
+                # — never trust the LLM's data string (it may be truncated or malformed)
+                for call in chart_calls:
+                    call["input"]["data"] = json.dumps(rows)
+                chart_executed = await _execute_calls(chart_calls, TOOL_REGISTRY)
+                executed.extend(chart_executed)
+
+    tool_context = "\n".join(
+        f"Tool '{tc['name']}' result: {tc['output']}" for tc in executed
+    ) if executed else ""
 
     return {**state, "tool_calls": executed, "tool_context": tool_context}
 
@@ -108,13 +133,31 @@ async def node_generate_reply(state: AgentState) -> AgentState:
 
     user_content = state["message"]
     if state.get("tool_context"):
-        user_content += f"\n\n[Tool results available:\n{state['tool_context']}]"
+        user_content += (
+            f"\n\n[Tools have already been executed. Results:\n{state['tool_context']}]\n\n"
+            "Write your response based on these results. Do NOT call any tools or output code blocks — "
+            "the tools have already run. Just present the findings clearly."
+        )
     messages.append({"role": "user", "content": user_content})
 
     raw = await get_llm().generate(
         system=system,
         messages=messages,
-        tier="pro"
+        tier="flash"
+    )
+
+    # Strip any tool call code blocks or image placeholders the model may emit
+    raw = re.sub(r"<tool_code>.*?</tool_code>", "", raw, flags=re.DOTALL)
+    raw = re.sub(r"```tool_code.*?```", "", raw, flags=re.DOTALL)
+    raw = re.sub(r"```python.*?```", "", raw, flags=re.DOTALL)
+    raw = re.sub(r"\[?<image:?[^>]*>\]?", "", raw)              # Gemini image placeholders
+    raw = re.sub(r"<img\b[^>]*>", "", raw)                      # stray HTML img tags
+    raw = re.sub(r"<figure\b[^>]*>.*?</figure>", "", raw, flags=re.DOTALL)  # figure blocks
+    raw = re.sub(r"<figcaption\b[^>]*>.*?</figcaption>", "", raw, flags=re.DOTALL)
+    # Strip stray print(generate_chart(...)) or similar calls in text
+    raw = re.sub(
+        r"\bprint\s*\(\s*(generate_chart|query_database|detect_anomalies|forecast_metric)\s*\(.*?\)\s*\)",
+        "", raw, flags=re.DOTALL
     )
 
     proactive = None
@@ -124,7 +167,7 @@ async def node_generate_reply(state: AgentState) -> AgentState:
             proactive = match.group(1).strip()
             raw = re.sub(r"<proactive>.*?</proactive>", "", raw, flags=re.DOTALL).strip()
 
-    return {**state, "final_response": raw, "proactive": proactive}
+    return {**state, "final_response": raw.strip(), "proactive": proactive}
 
 
 async def node_save_session(state: AgentState) -> AgentState:
@@ -159,11 +202,15 @@ def _build_tool_system(state: AgentState) -> str:
 You have access to tools. Use them to answer the analyst's question.
 Choose the most appropriate tool based on the question type:
 - Data questions → query_database
-- Visual requests → generate_chart (after querying data)
+- Visual requests → ALWAYS use generate_chart tool (NEVER write Mermaid or ASCII diagrams)
+- Route/driver/warehouse comparisons → query_database THEN generate_chart (bar chart)
+- Time-series data → query_database THEN generate_chart (line chart)
 - "unusual/anomaly/pattern" → detect_anomalies
 - "forecast/predict/next" → forecast_metric
 - "show SQL/explain" → explain_query
 - "what tables/columns" → get_schema_info
+
+IMPORTANT: Never output diagram markup (Mermaid, ASCII art). All visualisations go through generate_chart.
 """
 
 

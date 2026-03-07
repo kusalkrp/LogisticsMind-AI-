@@ -1,0 +1,142 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg-deep: #030303;
+  --bg-surface: rgba(15, 20, 25, 0.7);
+  --accent-gold: #E8B84B;
+  --accent-blue: #00A3FF;
+  --text-main: #E8EDF2;
+  --text-dim: #AAB8C2;
+  --border-light: rgba(255, 255, 255, 0.08);
+  --glass-blur: blur(12px);
+  --transition-fast: 0.2s ease-out;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-deep);
+  color: var(--text-main);
+  height: 100vh;
+  overflow: hidden;
+  background-image: 
+    radial-gradient(circle at 20% 20%, rgba(232, 184, 75, 0.03) 0%, transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(0, 163, 255, 0.03) 0%, transparent 40%);
+}
+
+#root {
+  height: 100%;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Glassmorphism Classes */
+.glass-panel {
+  background: var(--bg-surface);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-light);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  transition: all var(--transition-fast);
+}
+
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(232, 184, 75, 0.3);
+  transform: translateY(-1px);
+}
+
+.glass-button {
+  background: rgba(0, 163, 255, 0.2);
+  border: 1px solid rgba(0, 163, 255, 0.3);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.glass-button:hover {
+  background: rgba(0, 163, 255, 0.3);
+  box-shadow: 0 0 15px rgba(0, 163, 255, 0.4);
+  transform: scale(1.02);
+}
+
+.glass-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.glass-input {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 14px 20px;
+  color: white;
+  outline: none;
+  transition: all var(--transition-fast);
+  backdrop-filter: blur(8px);
+}
+
+.glass-input:focus {
+  border-color: rgba(232, 184, 75, 0.5);
+  background: rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 10px rgba(232, 184, 75, 0.1);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+@keyframes pulse-glow {
+  0% { box-shadow: 0 0 5px rgba(232, 184, 75, 0.2); }
+  50% { box-shadow: 0 0 15px rgba(232, 184, 75, 0.4); }
+  100% { box-shadow: 0 0 5px rgba(232, 184, 75, 0.2); }
+}
+
+.insight-glow {
+  animation: pulse-glow 2s infinite;
+}
